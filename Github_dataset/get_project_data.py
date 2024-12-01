@@ -107,11 +107,15 @@ def save_to_csv(data, project_directory):
     repo_info = data["repo_info"]
     repo_name = repo_info.get("name", "")
 
-    # 리포지토리 정보 저장
-    with open(os.path.join(project_directory, f"{repo_name}_projects.csv"), "w", newline="", encoding="utf-8") as file:
+    # 공통 프로젝트 목록 CSV 파일 경로
+    all_projects_csv = os.path.join(root_directory, "all_projects.csv")
+
+    # 공통 프로젝트 목록 CSV 파일에 추가
+    write_header = not os.path.exists(all_projects_csv)  # 파일이 없으면 헤더 작성
+    with open(all_projects_csv, "a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
-        writer.writerow(["ID", "Name", "Description", "Stars", "Forks", "Language", "Last Updated"])
-        repo_info = data["repo_info"]
+        if write_header:
+            writer.writerow(["ID", "Name", "Description", "Stars", "Forks", "Language", "Last Updated", "Owner"])
         writer.writerow([
             repo_info.get("id", ""),
             repo_info.get("name", ""),
@@ -119,7 +123,8 @@ def save_to_csv(data, project_directory):
             repo_info.get("stargazers_count", 0),
             repo_info.get("forks_count", 0),
             repo_info.get("language", ""),
-            repo_info.get("updated_at", "")
+            repo_info.get("updated_at", ""),
+            repo_info.get("owner", {}).get("login", "")
         ])
 
     # 커밋 정보 저장
