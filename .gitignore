@@ -2,3 +2,5 @@ documents/*.csv
 models/*
 .env
 GitHub_dataset/data
+*.faiss
+*.pkl
