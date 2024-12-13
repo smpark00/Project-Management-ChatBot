@@ -6,7 +6,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 import faiss
-from langchain_community.docstore.in_memory import InMemoryDocstore  # 올바른 import 경로
+from langchain.docstore.in_memory import InMemoryDocstore
 
 # HuggingFace Embeddings 설정
 EMBEDDINGS = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-small")
@@ -102,15 +102,11 @@ def create_vectorstore_for_project(project_path, project_name, output_dir):
 
     # 임베딩 저장
     os.makedirs(output_dir, exist_ok=True)
-    embeddings_file_path = os.path.join(output_dir, f"{project_name}_embeddings.npy")
+    project_dir = os.path.join(output_dir, project_name)
+    os.makedirs(project_dir, exist_ok=True)
+    embeddings_file_path = os.path.join(project_dir, f"embeddings.npy")
     np.save(embeddings_file_path, vectors_np)
     print(f"Embeddings for {project_name} saved to {embeddings_file_path}")
-
-    # 메타데이터 리스트
-    metadatas = [doc.metadata for doc in chunked_documents]
-
-    # (text, embedding) 형태의 리스트 생성
-    text_embeddings = [(text, vec.tolist()) for text, vec in zip(doc_texts, vectors_np)]
 
     # 클러스터 수 동적 설정
     num_vectors = len(vectors_np)
@@ -124,18 +120,22 @@ def create_vectorstore_for_project(project_path, project_name, output_dir):
     quantizer = faiss.IndexFlatL2(D)
     ivf_index = faiss.IndexIVFFlat(quantizer, D, nlist, faiss.METRIC_L2)
     
-    # IVF 인덱스 훈련
+    # IVF 인덱스 훈련 (벡터 수가 적으면 nlist(클러스터 수)를 줄여야 함)
     ivf_index.train(vectors_np)
     ivf_index.add(vectors_np)
 
     # docstore 생성
-    docstore_records = {str(i): doc for i, doc in enumerate(chunked_documents)}
+    docstore_records = {}
+    for i, doc in enumerate(chunked_documents):
+        doc_id = str(i)
+        docstore_records[doc_id] = doc
+
     docstore = InMemoryDocstore(docstore_records)
     index_to_docstore_id = {i: str(i) for i in range(len(chunked_documents))}
 
-    # VectorStore 생성 (Flat 대신 IVF 인덱스를 사용)
+    # VectorStore 생성 (texts, metadatas 인자 대신 docstore 사용)
     vectorstore = FAISS(
-        embedding_function=EMBEDDINGS,  # Embeddings 객체로 설정
+        embedding_function=EMBEDDINGS.embed_query,
         index=ivf_index,
         docstore=docstore,
         index_to_docstore_id=index_to_docstore_id
@@ -169,6 +169,6 @@ def process_all_projects(base_dir, output_dir):
 
 # 실행
 BASE_DIR = "./data"
-OUTPUT_DIR = "./vectorstores_npy_cluster22"
+OUTPUT_DIR = "./vectorstores_npy_cluster"
 
 process_all_projects(base_dir=BASE_DIR, output_dir=OUTPUT_DIR)
