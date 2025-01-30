@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from services.github_service import download_github_repo
+from services.vector_service import build_vector_database
 
 router = APIRouter()
 
@@ -10,7 +11,16 @@ async def download_repository(repo_url: str = Query(...)):
     """
     try:
         repo_name = download_github_repo(repo_url)
-        return {"message": "Repository data successfully saved.", "repository_name": repo_name}
+    
+        vector_db_result = build_vector_database(repo_name)
+
+        return {
+            "message": "Repository data successfully saved and vector database built.",
+            "repository_name": repo_name,
+            "csv_directory": vector_db_result["csv_directory"],
+            "vectorstore_directory": vector_db_result["vectorstore_directory"],
+            "metadata_file": vector_db_result["metadata_file"]
+        }
     except HTTPException as e:
         raise e
     except Exception as e:
