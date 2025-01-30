@@ -45,10 +45,9 @@ const MainPage = () => {
         }
 
         try {
-            const response = await fetch("http://localhost:8000/download", {
+            const response = await fetch(`http://localhost:8000/download?repo_url=${encodeURIComponent(urlInput)}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ repo_url: urlInput }),
             });
 
             if (!response.ok) {
@@ -57,12 +56,14 @@ const MainPage = () => {
             } else {
                 const result = await response.json();
                 setFeedback("Repository processed successfully!");
+                fetchProjects();
                 console.log(result);
             }
         } catch (err) {
             setFeedback("An error occurred while processing the repository.");
         }
     };
+
 
     useEffect(() => {
         fetchProjects();
