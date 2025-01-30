@@ -7,35 +7,35 @@ import {
     Button,
     Card,
     CardContent,
+    CardMedia,
     Typography,
 } from "@mui/material";
+import { Link } from "react-router-dom";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
+import fileimage from "../assets/images/file.png";
 
 const MainPage = () => {
-    // 프로젝트 데이터를 관리하는 상태
     const [projects, setProjects] = useState([]);
-    const [loading, setLoading] = useState(true); // 로딩 상태
-    const [error, setError] = useState(null); // 에러 상태
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
-    // 백엔드에서 데이터를 가져오는 함수
     const fetchProjects = async () => {
         try {
-            setLoading(true); // 로딩 시작
-            const response = await fetch("http://localhost:8000/projectslist"); // API 엔드포인트
+            setLoading(true);
+            const response = await fetch("http://localhost:8000/projectslist");
             if (!response.ok) {
                 throw new Error("Failed to fetch projects");
             }
-            const data = await response.json(); // JSON 데이터 파싱
-            setProjects(data); // 상태 업데이트
+            const data = await response.json();
+            setProjects(data);
         } catch (err) {
-            setError(err.message); // 에러 상태 저장
+            setError(err.message);
         } finally {
-            setLoading(false); // 로딩 종료
+            setLoading(false);
         }
     };
 
-    // 컴포넌트가 마운트될 때 API 호출
     useEffect(() => {
         fetchProjects();
     }, []);
@@ -55,7 +55,6 @@ const MainPage = () => {
                     alignItems: "center",
                 }}
             >
-                {/* ✅ 상단 검색 섹션 */}
                 <Box
                     sx={{
                         width: "100%",
@@ -75,16 +74,11 @@ const MainPage = () => {
                         fullWidth
                         sx={{ flexGrow: 1 }}
                     />
-                    <Button
-                        variant="contained"
-                        color="secondary"
-                        sx={{ mt: { xs: 2, sm: 0 } }}
-                    >
+                    <Button variant="contained" color="secondary" sx={{ mt: { xs: 2, sm: 0 } }}>
                         Load Project
                     </Button>
                 </Box>
 
-                {/* ✅ 프로젝트 개요 섹션 */}
                 <Box
                     sx={{
                         flex: 1,
@@ -113,20 +107,41 @@ const MainPage = () => {
                         <Grid container spacing={3}>
                             {projects.map((project, index) => (
                                 <Grid item xs={12} sm={6} md={4} key={index}>
-                                    <Card>
-                                        <CardContent>
-                                            <Typography variant="body1" align="center">
-                                                {project.name}
-                                            </Typography>
-                                        </CardContent>
-                                    </Card>
+                                    <Link
+                                        to={`/projects/${project.name}`}
+                                        style={{ textDecoration: "none" }}
+                                    >
+                                        <Card
+                                            sx={{
+                                                cursor: "pointer",
+                                                transition: "transform 0.2s",
+                                                "&:hover": { transform: "scale(1.05)" },
+                                            }}
+                                        >
+                                            <CardMedia
+                                                component="img"
+                                                src={fileimage}
+                                                alt={project.name}
+                                                sx={{
+                                                    height: 80, // 원하는 높이 (픽셀 단위)
+                                                    width: "auto", // 비율을 유지하면서 너비 자동 조정
+                                                    objectFit: "cover", // 이미지의 비율을 유지하며 박스에 맞게 자르기
+                                                    margin: "0 auto", // 이미지를 중앙 정렬
+                                                }}
+                                            />
+
+                                            <CardContent>
+                                                <Typography variant="body1" align="center">
+                                                    {project.name}
+                                                </Typography>
+                                            </CardContent>
+                                        </Card>
+                                    </Link>
                                 </Grid>
                             ))}
                         </Grid>
                     )}
                 </Box>
-
-                {/* ✅ Footer */}
                 <Footer />
             </Container>
         </>
