@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import chat, project_load
+from routes import chat, project_load, github_data
 
 app = FastAPI()
 
@@ -21,6 +21,7 @@ app.add_middleware(
 
 app.include_router(chat.router)
 app.include_router(project_load.router)
+app.include_router(github_data.router)
 
 if __name__ == "__main__":
     import uvicorn
