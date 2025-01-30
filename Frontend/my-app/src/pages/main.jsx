@@ -22,7 +22,7 @@ const MainPage = () => {
     const fetchProjects = async () => {
         try {
             setLoading(true); // 로딩 시작
-            const response = await fetch("http://localhost:5000/api/projects"); // API 엔드포인트
+            const response = await fetch("http://localhost:8000/projectslist"); // API 엔드포인트
             if (!response.ok) {
                 throw new Error("Failed to fetch projects");
             }
