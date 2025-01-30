@@ -19,6 +19,8 @@ const MainPage = () => {
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [urlInput, setUrlInput] = useState(""); // URL 입력 상태
+    const [feedback, setFeedback] = useState(""); // 사용자 피드백 메시지
 
     const fetchProjects = async () => {
         try {
@@ -33,6 +35,32 @@ const MainPage = () => {
             setError(err.message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleLoadProject = async () => {
+        if (!urlInput.trim()) {
+            setFeedback("Please enter a valid URL.");
+            return;
+        }
+
+        try {
+            const response = await fetch("http://localhost:8000/download", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ repo_url: urlInput }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                setFeedback(error.detail || "Failed to process the repository.");
+            } else {
+                const result = await response.json();
+                setFeedback("Repository processed successfully!");
+                console.log(result);
+            }
+        } catch (err) {
+            setFeedback("An error occurred while processing the repository.");
         }
     };
 
@@ -72,9 +100,16 @@ const MainPage = () => {
                         label="Insert GitHub Project Repository URL"
                         variant="outlined"
                         fullWidth
+                        value={urlInput}
+                        onChange={(e) => setUrlInput(e.target.value)}
                         sx={{ flexGrow: 1 }}
                     />
-                    <Button variant="contained" color="secondary" sx={{ mt: { xs: 2, sm: 0 } }}>
+                    <Button
+                        variant="contained"
+                        color="secondary"
+                        onClick={handleLoadProject}
+                        sx={{ mt: { xs: 2, sm: 0 } }}
+                    >
                         Load Project
                     </Button>
                 </Box>
