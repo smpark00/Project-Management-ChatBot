@@ -1,7 +1,8 @@
+# github_data.py
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from services.github_service import download_github_repo
-from services.vector_service import build_vector_database
+from services.vector_service import VectorStoreService
 import asyncio
 import json
 
@@ -9,33 +10,37 @@ router = APIRouter()
 
 async def progress_stream(repo_url: str):
     """
-    GitHub 저장소 다운로드 및 벡터 데이터베이스 구축 진행률을 SSE 방식으로 스트리밍
+    GitHub 저장소 다운로드 & CSV 변환 & 벡터 데이터베이스 구축 진행률을
+    SSE 방식으로 스트리밍
     """
     try:
-        total_steps = 100
         current_progress = 0
+        total_steps = 100
+
+        # VectorStoreService 인스턴스 준비
+        vector_service = VectorStoreService()
 
         async def update_progress(step_count, status_message):
-            """ 진행률을 업데이트하면서 프론트엔드로 전송 """
+            """ 진행률을 업데이트하면서 SSE로 전송 """
             nonlocal current_progress
             for _ in range(step_count):
                 current_progress += 1
                 yield f"data: {json.dumps({'progress': current_progress, 'status': status_message})}\n\n"
-                await asyncio.sleep(0.1)  # 🎯 비동기 대기
+                await asyncio.sleep(0.05)  # 임의로 0.05초 쉬어가며 진행률 보여주기
 
-        # 1️⃣ GitHub 저장소 다운로드 (총 30%)
+        # 1) GitHub 저장소 다운로드 (예: 전체의 30% 할당)
         yield f"data: {json.dumps({'progress': current_progress, 'status': 'Starting repository download'})}\n\n"
         repo_name = await asyncio.to_thread(download_github_repo, repo_url)
         async for progress in update_progress(30, "Downloading repository completed."):
             yield progress
 
-        # 2️⃣ 벡터 데이터베이스 구축 (총 70%)
+        # 2) 벡터 데이터베이스 구축 (나머지 70% 할당)
         yield f"data: {json.dumps({'progress': current_progress, 'status': 'Building vector database'})}\n\n"
-        vector_db_result = await asyncio.to_thread(build_vector_database, repo_name)
-        async for progress in update_progress(70, "Building vector database."):
+        vector_db_result = await asyncio.to_thread(vector_service.build_vector_database, repo_name)
+        async for progress in update_progress(70, "Building vector database..."):
             yield progress
 
-        # 🎯 최종 완료
+        # 완료 시점
         yield f"""data: {json.dumps({
             'progress': 100,
             'status': 'Process complete',
@@ -51,6 +56,6 @@ async def progress_stream(repo_url: str):
 @router.get("/progress")
 async def progress(repo_url: str = Query(...)):
     """
-    진행률을 스트리밍 응답으로 반환 (프론트엔드에서 실시간으로 확인 가능)
+    진행률을 스트리밍으로 반환해 주는 엔드포인트
     """
     return StreamingResponse(progress_stream(repo_url), media_type="text/event-stream")

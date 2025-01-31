@@ -1,87 +1,125 @@
 import os
 import json
-import numpy as np
 import pandas as pd
-import faiss
 from pathlib import Path
 from langchain.schema import Document
-from langchain_community.docstore.in_memory import InMemoryDocstore
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
-BASE_DIRECTORY = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "../storage")))
+BASE_DIRECTORY = Path(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "../storage"))
+)
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
-embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
 
-def build_vector_database(repo_name: str):
-    """CSV 데이터를 기반으로 벡터 데이터베이스 구축"""
-    project_path = BASE_DIRECTORY / repo_name / "csv"
-    print(f"Building vector database for {repo_name}...")
-    if not project_path.exists():
-        raise ValueError(f"CSV directory not found for {repo_name}")
+class VectorStoreService:
+    def __init__(
+        self,
+        base_directory: Path = BASE_DIRECTORY,
+        embeddings_model_name: str = MODEL_NAME,
+    ):
+        self.base_directory = Path(base_directory).resolve()
+        self.embeddings = HuggingFaceEmbeddings(model_name=embeddings_model_name)
 
-    issues_path = project_path / f"{repo_name}_issues.csv"
-    prs_path = project_path / f"{repo_name}_pull_requests.csv"
-    commits_path = project_path / f"{repo_name}_commits.csv"
+    def get_vectorstore_path(self, repo_name: str) -> Path:
+        """프로젝트별 벡터스토어가 저장될 경로를 반환"""
+        return self.base_directory / repo_name / "vectorstore"
 
-    if not issues_path.exists() or not prs_path.exists() or not commits_path.exists():
-        raise ValueError("One or more CSV files are missing")
+    def build_vector_database(self, repo_name: str) -> dict:
+        """
+        CSV 데이터에서 필요한 텍스트를 추출하여 FAISS 벡터스토어를 생성 및 저장
+        """
+        csv_dir = self.base_directory / repo_name / "csv"
+        if not csv_dir.exists():
+            raise FileNotFoundError(f"CSV 폴더가 존재하지 않습니다: {csv_dir}")
 
-    issues_df = pd.read_csv(issues_path)
-    prs_df = pd.read_csv(prs_path)
-    commits_df = pd.read_csv(commits_path)
+        csv_files = [
+            f"{repo_name}_commits.csv",
+            f"{repo_name}_issues.csv",
+            f"{repo_name}_pull_requests.csv",
+        ]
 
-    all_texts, metadata, doc_ids = [], [], []
+        df_list = []
+        for filename in csv_files:
+            path = csv_dir / filename
+            if path.exists():
+                temp_df = pd.read_csv(path)
+                df_list.append(temp_df)
+            else:
+                print(f"⚠️ CSV 파일이 없어 스킵합니다: {path}")
 
-    for _, row in issues_df.iterrows():
-        text = f"Issue: {row['Title']}, State: {row['State']}"
-        all_texts.append(text)
-        metadata.append({"type": "issue", "original_data": row.to_dict()})
-        doc_ids.append(str(row["ID"]))
+        if not df_list:
+            raise FileNotFoundError(
+                f"'{repo_name}' 관련 CSV가 하나도 존재하지 않습니다. ({csv_dir})"
+            )
 
-    for _, row in prs_df.iterrows():
-        text = f"PR: {row['Title']}, State: {row['State']}"
-        all_texts.append(text)
-        metadata.append({"type": "pull_request", "original_data": row.to_dict()})
-        doc_ids.append(str(row["ID"]))
+        df = pd.concat(df_list, ignore_index=True)
+        print(f"✅ CSV {len(df_list)}개를 합쳐서 총 {len(df)}개 레코드를 얻었습니다.")
 
-    for _, row in commits_df.iterrows():
-        text = f"Commit: {row['Message']}, Author: {row['Author']}"
-        all_texts.append(text)
-        metadata.append({"type": "commit", "original_data": row.to_dict()})
-        doc_ids.append(str(row["ID"]))
+        docs = []
+        doc_dict = {}  # ✅ docstore.json 저장용
+        index_to_docstore_id = {}  # ✅ index_to_docstore_id.json 저장용
 
-    docs = [Document(page_content=text) for text in all_texts]
+        for idx, row in df.iterrows():
+            if "ID" not in row:
+                raise ValueError(
+                    "CSV에 'ID' 컬럼이 없습니다. doc_id를 뭘로 쓸지 결정해야 합니다."
+                )
 
-    embedding_vectors = embeddings.embed_documents(all_texts)
-    embedding_vectors = np.array(embedding_vectors, dtype="float32")
+            doc_id = str(row["ID"]).strip()
 
-    d = embedding_vectors.shape[1]
-    index = faiss.IndexFlatL2(d)
-    index.add(embedding_vectors)
+            # 🔹 Title, Message, Body 등의 필드를 합쳐 문서 내용 생성
+            content_parts = []
+            if "Title" in row and pd.notna(row["Title"]):
+                content_parts.append(f"Title: {row['Title']}")
+            if "Message" in row and pd.notna(row["Message"]):
+                content_parts.append(f"Message: {row['Message']}")
+            if "Body" in row and pd.notna(row["Body"]):
+                content_parts.append(f"Body: {row['Body']}")
+            content = (
+                "\n".join(content_parts) if content_parts else "No content available."
+            )
 
-    doc_dict = {doc_ids[i]: docs[i] for i in range(len(docs))}
-    docstore = InMemoryDocstore(doc_dict)
-    index_to_docstore_id = {str(i): doc_ids[i] for i in range(len(docs))}
+            filename = row.get("filename", f"file_{doc_id}")
 
-    vectorstore = FAISS(
-        embedding_function=embeddings,
-        index=index,
-        docstore=docstore,
-        index_to_docstore_id=index_to_docstore_id,
-    )
+            doc = Document(
+                page_content=content, metadata={"source": filename, "id": doc_id}
+            )
+            docs.append(doc)
 
-    vectorstore_dir = BASE_DIRECTORY / repo_name / "vectorstore"
-    vectorstore_dir.mkdir(parents=True, exist_ok=True)
-    vectorstore.save_local(str(vectorstore_dir))
+            # ✅ JSON 직렬화 가능하도록 저장
+            doc_dict[doc_id] = {"page_content": content}
 
-    with open(vectorstore_dir / "metadata.json", "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2, ensure_ascii=False)
+            # ✅ FAISS 인덱스와 매핑을 맞추기 위해 idx를 사용
+            index_to_docstore_id[str(idx)] = doc_id
 
-    return {
-        "message": "Vector database built successfully.",
-        "csv_directory": str(project_path),
-        "vectorstore_directory": str(vectorstore_dir),
-        "metadata_file": str(vectorstore_dir / "metadata.json")
-    }
+        print(f"✅ Document 객체 생성 완료. 총 {len(docs)}개")
+
+        # 3) FAISS 벡터스토어 생성 & 저장
+        vectorstore = FAISS.from_documents(docs, self.embeddings)
+        vectorstore.index_to_docstore_id = (
+            index_to_docstore_id  # ✅ FAISS 객체에 직접 매핑 추가
+        )
+
+        vectorstore_path = self.get_vectorstore_path(repo_name)
+        vectorstore_path.mkdir(parents=True, exist_ok=True)
+        vectorstore.save_local(str(vectorstore_path))
+
+        # ✅ index_to_docstore_id.json 저장
+        index_mapping_path = vectorstore_path / "index_to_docstore_id.json"
+        with open(index_mapping_path, "w", encoding="utf-8") as f:
+            json.dump(index_to_docstore_id, f, ensure_ascii=False, indent=2)
+
+        # ✅ docstore.json 저장
+        docstore_path = vectorstore_path / "docstore.json"
+        with open(docstore_path, "w", encoding="utf-8") as f:
+            json.dump(doc_dict, f, ensure_ascii=False, indent=2)
+
+        print(f"✅ 벡터스토어가 성공적으로 생성 및 저장되었습니다: {vectorstore_path}")
+
+        return {
+            "vectorstore_directory": str(vectorstore_path),
+            "docstore_file": str(docstore_path),
+            "index_to_docstore_file": str(index_mapping_path),
+            "doc_count": len(docs),
+        }

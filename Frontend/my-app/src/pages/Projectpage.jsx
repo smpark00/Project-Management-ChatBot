@@ -2,28 +2,42 @@ import React, { useState } from "react";
 import { useParams } from "react-router-dom";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
-import { Container, Box, Typography, TextField, Button, Paper } from "@mui/material";
+import { Container, Box, Typography, TextField, Button, Paper, CircularProgress } from "@mui/material";
 
 const ProjectPage = () => {
-    const { projectName } = useParams(); // URL 파라미터에서 프로젝트 이름 가져오기
+    const { projectName } = useParams();
     const [messages, setMessages] = useState([
         { sender: "bot", text: "프로젝트에 관한 질문을 해주세요!" },
-    ]); // 채팅 메시지 목록
-    const [input, setInput] = useState(""); // 입력값
+    ]);
+    const [input, setInput] = useState("");
+    const [loading, setLoading] = useState(false); // 로딩 상태 추가
 
-    // 채팅 메시지 추가 함수
-    const handleSend = () => {
-        if (input.trim()) {
-            setMessages([...messages, { sender: "user", text: input }]);
-            setInput(""); // 입력 필드 초기화
+    const handleSend = async () => {
+        if (!input.trim()) return;
 
-            // 챗봇 응답 추가 (예제용)
-            setTimeout(() => {
-                setMessages((prev) => [
-                    ...prev,
-                    { sender: "bot", text: `${input}에 대한 답변을 준비 중입니다.` },
-                ]);
-            }, 1000);
+        const userMessage = { sender: "user", text: input };
+        setMessages((prev) => [...prev, userMessage]);
+        setInput("");
+        setLoading(true); // 응답 대기 상태
+
+        try {
+            const response = await fetch("http://localhost:8000/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    query: input,
+                    project: projectName,
+                }),
+            });
+
+            const data = await response.json();
+            const botMessage = { sender: "bot", text: data.response || "오류가 발생했습니다." };
+
+            setMessages((prev) => [...prev, botMessage]);
+        } catch (error) {
+            setMessages((prev) => [...prev, { sender: "bot", text: "서버 응답에 실패했습니다." }]);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -40,18 +54,16 @@ const ProjectPage = () => {
                     py: 2,
                 }}
             >
-                {/* 제목 */}
                 <Typography variant="h4" align="center" gutterBottom>
                     Project - {projectName}
                 </Typography>
 
-                {/* 채팅 영역 */}
                 <Paper
                     elevation={3}
                     sx={{
                         flex: 1,
                         width: "100%",
-                        maxWidth: "1000px", // 가로 길이를 더 넓게 조정
+                        maxWidth: "1000px",
                         overflowY: "auto",
                         display: "flex",
                         flexDirection: "column",
@@ -83,14 +95,18 @@ const ProjectPage = () => {
                             </Box>
                         </Box>
                     ))}
+                    {loading && (
+                        <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
+                            <CircularProgress size={24} />
+                        </Box>
+                    )}
                 </Paper>
 
-                {/* 입력 영역 */}
                 <Box
                     sx={{
                         display: "flex",
                         width: "100%",
-                        maxWidth: "1000px", // 입력 영역도 동일한 너비로 조정
+                        maxWidth: "1000px",
                         gap: 2,
                         alignItems: "center",
                     }}
@@ -106,9 +122,9 @@ const ProjectPage = () => {
                         variant="contained"
                         color="primary"
                         onClick={handleSend}
-                        sx={{ flexShrink: 0 }}
+                        disabled={loading} // 로딩 중에는 버튼 비활성화
                     >
-                        전송
+                        {loading ? "응답 대기..." : "전송"}
                     </Button>
                 </Box>
             </Container>
