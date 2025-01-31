@@ -1,6 +1,5 @@
 import os
 import json
-import openai
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter
@@ -13,15 +12,21 @@ from langchain.docstore.in_memory import InMemoryDocstore
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_community.vectorstores import FAISS as LangchainFAISS
 
+# OpenAI API 서비스 불러오기
+from services.openai_service import OpenAIService
+
 # 환경 변수 로드
 load_dotenv()
+
+# ✅ OpenAIService 인스턴스 생성
+openai_service = OpenAIService()
 
 # 모델 설정
 model_name = "sentence-transformers/all-MiniLM-L6-v2"
 embeddings = SentenceTransformerEmbeddings(model_name=model_name)
 
 # ✅ vectorstore 경로 (vector_service.py에서 만든 벡터스토어 경로와 일치해야 함)
-vectorstore_dir = "./storage/Algorithm/vectorstore"  # 경로를 적절히 변경하세요
+vectorstore_dir = "./storage/anony-drone/vectorstore"  # 경로를 적절히 변경하세요
 
 # ✅ FAISS 인덱스 로드
 faiss_index_path = os.path.join(vectorstore_dir, "index.faiss")
@@ -74,32 +79,6 @@ class ChatRequest(BaseModel):
     k: int = 20
 
 
-def query_openai(
-    prompt: str, model_name: str = "gpt-4o-mini", temperature=0.1, top_p=1.0
-) -> str:
-    """
-    OpenAI API를 호출하여 답변을 생성
-    """
-    try:
-        client = openai.Client(api_key=os.getenv("OPENAI_API_KEY"))
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant. Provide answers based on given context.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=temperature,
-            top_p=top_p,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"Error querying OpenAI: {e}")
-        return "죄송합니다. 응답 생성 중 오류가 발생했습니다."
-
-
 @router.post("/chat")
 def chat(request: ChatRequest):
     """
@@ -116,7 +95,6 @@ def chat(request: ChatRequest):
         search_results = vectorstore.similarity_search(query, k=k)
     except KeyError as e:
         print(f"KeyError during similarity_search: {e}")
-        print(f"문서 ID 타입: {type(e.args[0])}, 값: {e.args[0]}")
         return {"error": "문서 검색 중 오류가 발생했습니다."}
     except Exception as e:
         print(f"Unexpected error during similarity_search: {e}")
@@ -129,9 +107,6 @@ def chat(request: ChatRequest):
         if isinstance(doc_id, (int, np.integer)):
             # ✅ ID 변환 (index_to_docstore_id 사용)
             doc_id_str = index_to_docstore_id.get(int(doc_id), "Unknown")
-            print(f"문서 ID (변환 전): {doc_id}, 타입: {type(doc_id)}")
-            print(f"문서 ID (변환 후): {doc_id_str}, 타입: {type(doc_id_str)}")
-
             if doc_id_str in docstore:
                 context += f"- {docstore.get(doc_id_str).page_content}\n"
             else:
@@ -139,18 +114,10 @@ def chat(request: ChatRequest):
         else:
             context += f"- {doc.page_content}\n"
 
-    # ✅ OpenAI API 호출
+    # ✅ OpenAI API 호출 (openai_service.py 활용)
     prompt = f"Context:\n{context}\n\nQuestion:\n{query}\n\nAnswer:"
-    answer = query_openai(
+    answer = openai_service.query_openai(
         prompt, model_name=model_name, temperature=temperature, top_p=top_p
     )
 
     return {"query": query, "response": answer, "context": context}
-
-
-# ✅ FastAPI 앱에 `router` 추가
-app.include_router(router)
-
-# ✅ FastAPI 실행 (uvicorn 사용)
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8001)
