@@ -25,47 +25,6 @@ openai_service = OpenAIService()
 model_name = "sentence-transformers/all-MiniLM-L6-v2"
 embeddings = SentenceTransformerEmbeddings(model_name=model_name)
 
-# ✅ vectorstore 경로 (vector_service.py에서 만든 벡터스토어 경로와 일치해야 함)
-vectorstore_dir = "./storage/anony-drone/vectorstore"  # 경로를 적절히 변경하세요
-
-# ✅ FAISS 인덱스 로드
-faiss_index_path = os.path.join(vectorstore_dir, "index.faiss")
-if not os.path.isfile(faiss_index_path):
-    raise FileNotFoundError(f"FAISS index file not found at: {faiss_index_path}")
-faiss_index = faiss.read_index(faiss_index_path)
-
-# ✅ `docstore.json` 로드
-docstore_path = os.path.join(vectorstore_dir, "docstore.json")
-if not os.path.isfile(docstore_path):
-    raise FileNotFoundError(f"docstore.json file not found at: {docstore_path}")
-with open(docstore_path, "r", encoding="utf-8") as f:
-    doc_dict = json.load(f)
-
-# ✅ 문서 객체 변환 (`docstore.json` -> InMemoryDocstore)
-reconstructed_docstore = {
-    str(k): Document(page_content=v["page_content"], metadata={"id": str(k)})
-    for k, v in doc_dict.items()
-}
-docstore = InMemoryDocstore(reconstructed_docstore)
-
-# ✅ `index_to_docstore_id.json` 로드 및 정수형 변환
-mapping_path = os.path.join(vectorstore_dir, "index_to_docstore_id.json")
-if not os.path.isfile(mapping_path):
-    raise FileNotFoundError(
-        f"index_to_docstore_id.json file not found at: {mapping_path}"
-    )
-with open(mapping_path, "r", encoding="utf-8") as f:
-    index_to_docstore_id_raw = json.load(f)
-index_to_docstore_id = {int(k): str(v) for k, v in index_to_docstore_id_raw.items()}
-
-# ✅ Langchain FAISS VectorStore 생성
-vectorstore = LangchainFAISS(
-    embedding_function=embeddings,
-    index=faiss_index,
-    docstore=docstore,
-    index_to_docstore_id=index_to_docstore_id,
-)
-
 # ✅ FastAPI 앱 & APIRouter 초기화
 app = FastAPI()
 router = APIRouter()
@@ -73,10 +32,59 @@ router = APIRouter()
 
 class ChatRequest(BaseModel):
     query: str
+    project_name: str  # ✅ 프론트에서 프로젝트명을 입력받도록 추가
     model_name: str = "gpt-4o-mini"
     temperature: float = 0.1
     top_p: float = 1.0
     k: int = 20
+
+
+def load_vectorstore(project_name: str):
+    """
+    동적으로 프로젝트별 FAISS 벡터스토어를 로드하는 함수
+    """
+    # ✅ 프로젝트에 맞는 벡터스토어 경로 설정
+    vectorstore_dir = f"./storage/{project_name}/vectorstore"
+
+    # ✅ FAISS 인덱스 로드
+    faiss_index_path = os.path.join(vectorstore_dir, "index.faiss")
+    if not os.path.isfile(faiss_index_path):
+        raise FileNotFoundError(f"FAISS index file not found at: {faiss_index_path}")
+    faiss_index = faiss.read_index(faiss_index_path)
+
+    # ✅ `docstore.json` 로드
+    docstore_path = os.path.join(vectorstore_dir, "docstore.json")
+    if not os.path.isfile(docstore_path):
+        raise FileNotFoundError(f"docstore.json file not found at: {docstore_path}")
+    with open(docstore_path, "r", encoding="utf-8") as f:
+        doc_dict = json.load(f)
+
+    # ✅ 문서 객체 변환 (`docstore.json` -> InMemoryDocstore)
+    reconstructed_docstore = {
+        str(k): Document(page_content=v["page_content"], metadata={"id": str(k)})
+        for k, v in doc_dict.items()
+    }
+    docstore = InMemoryDocstore(reconstructed_docstore)
+
+    # ✅ `index_to_docstore_id.json` 로드 및 정수형 변환
+    mapping_path = os.path.join(vectorstore_dir, "index_to_docstore_id.json")
+    if not os.path.isfile(mapping_path):
+        raise FileNotFoundError(
+            f"index_to_docstore_id.json file not found at: {mapping_path}"
+        )
+    with open(mapping_path, "r", encoding="utf-8") as f:
+        index_to_docstore_id_raw = json.load(f)
+    index_to_docstore_id = {int(k): str(v) for k, v in index_to_docstore_id_raw.items()}
+
+    # ✅ Langchain FAISS VectorStore 생성
+    vectorstore = LangchainFAISS(
+        embedding_function=embeddings,
+        index=faiss_index,
+        docstore=docstore,
+        index_to_docstore_id=index_to_docstore_id,
+    )
+
+    return vectorstore, docstore, index_to_docstore_id
 
 
 @router.post("/chat")
@@ -85,14 +93,24 @@ def chat(request: ChatRequest):
     유사도 검색을 수행한 후 OpenAI API를 호출하여 응답을 반환
     """
     query = request.query
+    project_name = request.project_name
     model_name = request.model_name
     temperature = request.temperature
     top_p = request.top_p
     k = request.k
 
-    # ✅ FAISS VectorStore에서 유사 문서 검색
     try:
+        # ✅ 프로젝트별 벡터스토어 로드
+        vectorstore, docstore, index_to_docstore_id = load_vectorstore(project_name)
+
+        # ✅ FAISS VectorStore에서 유사 문서 검색
         search_results = vectorstore.similarity_search(query, k=k)
+
+    except FileNotFoundError as e:
+        print(f"FileNotFoundError: {e}")
+        return {
+            "error": f"프로젝트 '{project_name}'의 벡터 데이터베이스가 존재하지 않습니다."
+        }
     except KeyError as e:
         print(f"KeyError during similarity_search: {e}")
         return {"error": "문서 검색 중 오류가 발생했습니다."}

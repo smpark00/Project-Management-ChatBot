@@ -26,7 +26,7 @@ const ProjectPage = () => {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     query: input,
-                    project: projectName,
+                    project_name: projectName,
                 }),
             });
 
